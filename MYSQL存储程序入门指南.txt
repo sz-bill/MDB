@@ -1,0 +1,229 @@
+1，前提 ：需要MySQL 5
+
+2，一个最简单的Hello world 程序
+
+CREATE PROCEDURE HelloWorld() 
+BEGIN  
+    SELECT "Hello World!";  
+END;
+
+3，变量
+使用DECLARE来声明，DEFAULT赋默认值，SET赋值
+
+DECLARE counter INT DEFAULT 0;  
+SET counter = counter+1; 
+
+4，参数
+IN为默认类型，值必须在调用时指定，值不能返回（值传递）
+OUT值可以返回（指针传递）
+INOUT值必须在调用时指定，值可以返回
+CREATE PROCEDURE test(a INT, OUT b FLOAT, INOUT c INT)
+
+
+5，条件判断
+IF THEN、ELSEIF、ELSE、END IF
+
+CREATE PROCEDURE discunted_price(normal_price NUMERIC(8, 2), OUT discount_price NUMERIC(8, 2))
+BEGIN
+    IF (normal_price > 500) THEN
+        SET discount_price = normal_price * .8;
+    ELSEIF (normal_price > 100) THEN
+        SET discount_price = normal_price * .9;
+    ELSE
+        SET discount_price = normal_price;
+    END IF;
+END;
+
+6，循环
+LOOP、END LOOP
+
+CREATE PROCEDURE simple_loop(OUT counter INT)
+BEGIN
+    SET counter = 0;
+    my_simple_loop: LOOP
+        SET counter = counter+1;
+        IF counter = 10 THEN
+            LEAVE my_simple_loop;
+        END IF;
+    END LOOP my_simple_loop;
+END;
+
+WHILE DO、END WHILE
+
+CREATE PROCEDURE simple_while(OUT counter INT)
+BEGIN
+    SET counter = 0;
+    WHILE counter != 10 DO
+        SET counter = counter+1;
+    END WHILE;
+END ;
+
+REPEAT、UNTILL
+
+CREATE PROCEDURE simple_repeat(OUT counter INT)
+BEGIN
+    SET counter = 0;
+    REPEAT
+        SET counter = counter+1;
+    UNTIL counter = 10 END REPEAT;
+END;
+
+7，异常处理
+如果用cursor获取SELECT语句返回的所有结果集时应该定义NOT FOUND error handler来防止存储程序提前终结
+如果SQL语句可能返回constraint violation等错误时应该创建一个handler来防止程序终结
+
+
+8，数据库交互
+INTO用于存储单行记录的查询结果
+
+DECLARE total_sales NUMERIC(8, 2);
+SELECT SUM(sale_value) INTO total_sales FROM sales WHERE customer_id=in_customer_id;
+
+CURSOR用于处理多行记录的查询结果
+
+CREATE PROCEDURE cursor_example()
+    READS SQL DATA
+BEGIN
+    DECLARE l_employee_id INT;
+    DECLARE l_salary NUMERIC(8,2);
+    DECLARE l_department_id INT;
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur1 CURSOR FOR SELECT employee_id, salary, department_id FROM employees;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done=1;
+
+    OPEN cur1;
+    emp_loop: LOOP
+        FETCH cur1 INTO l_employee_id, l_salary, l_department_id;
+        IF done=1 THEN
+            LEAVE emp_loop;
+        END IF;
+    END LOOP emp_loop;
+    CLOSE cur1;
+END;
+
+unbounded SELECT语句用于存储过程返回结果集
+
+CREATE PROCEDURE sp_emps_in_dept(in_employee_id INT)
+BEGIN
+    SELECT employee_id, surname, firstname, address1, address2, zipcode, date_of_birth FROM employees WHERE department_id=in_employee_id;
+END;
+
+UPDATE、INSERT、DELETE、CREATE TABLE等非查询语句也可以嵌入存储过程里
+
+CREATE PROCEDURE sp_update_salary(in_employee_id INT, in_new_salary NUMERIC(8,2))
+BEGIN
+    IF in_new_salary < 5000 OR in_new_salary > 500000 THEN
+        SELECT "Illegal salary: salary must be between $5000 and $500, 000";
+    ELSE
+        UPDATE employees SET salary=in_new_salary WHERE employee_id=in_employee_id;
+    END IF:
+END ;
+
+9，使用CALL调用存储程序
+
+CREATE PROCEDURE call_example(employee_id INT, employee_type VARCHAR(20))
+    NO SQL
+BEGIN
+    DECLARE l_bonus_amount NUMERIC(8,2);
+
+    IF employee_type='MANAGER' THEN
+        CALL calc_manager_bonus(employee_id, l_bonus_amount);
+    ELSE
+        CALL calc_minion_bonus(employee_id, l_bonus_amount);
+    END IF;
+    CALL grant_bonus(employee_id, l_bonus_amount);
+END;
+
+10，一个复杂的例子
+
+CREATE PROCEDURE putting_it_all_together(in_department_id INT)
+    MODIFIES SQL DATA
+BEGIN
+    DECLARE l_employee_id INT;
+    DECLARE l_salary NUMERIC(8,2);
+    DECLARE l_department_id INT;
+    DECLARE l_new_salary NUMERIC(8,2);
+    DECLARE done INT DEFAULT 0;
+
+    DECLARE cur1 CURSOR FOR
+        SELECT employee_id, salary, department_id
+        FROM employees
+        WHERE department_id=in_department_id;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done=1;
+
+    CREATE TEMPORARY TABLE IF NOT EXISTS emp_raises
+        (employee_id INT, department_id INT, new_salary NUMERIC(8,2));
+
+    OPEN cur1;
+    emp_loop: LOOP
+        FETCH cur1 INTO l_employee_id, l_salary, l_department_id;
+        IF done=1 THEN    /* No more rows */
+            LEAVE emp_loop;
+        END IF;
+        CALL new_salary(1_employee_id, l_new_salary); /* Get new salary */
+        IF (l_new_salary <> l_salary) THEN  /* Salary changed */
+            UPDATE employees
+                SET salary=l_new_salary
+            WHERE employee_id=l_employee_id;
+            /* Keep track of changed salaries */
+            INSERT INTO emp_raises(employee_id, department_id, new_salary)
+                VALUES (l_employee_id, l_department_id, l_new_salary);
+        END IF:
+    END LOOP emp_loop;
+    CLOSE cur1;
+    /* Print out the changed salaries */
+    SELECT employee_id, department_id, new_salary from emp_raises
+        ORDER BY employee_id;
+END;
+
+11，存储方法
+存储方法与存储过程的区别
+1，存储方法的参数列表只允许IN类型的参数，而且没必要也不允许指定IN关键字
+2，存储方法返回一个单一的值，值的类型在存储方法的头部定义
+3，存储方法可以在SQL语句内部调用
+4，存储方法不能返回结果集
+例子：
+
+CREATE FUNCTION f_discount_price
+    (normal_price NUMERIC(8,2))
+    RETURNS NUMERIC(8,2)
+    DETERMINISTIC
+BEGIN
+    DECLARE discount_price NUMERIC(8,2);
+
+    IF (normal_price > 500) THEN
+        SET discount_price = normal_price * .8;
+    ELSEIF (normal_price >100) THEN
+        SET discount_price = normal_price * .9;
+    ELSE
+        SET discount_price = normal_price;
+    END IF;
+
+    RETURN(discount_price);
+END;
+
+
+12，触发器
+触发器在INSERT、UPDATE或DELETE等DML语句修改数据库表时触发
+触发器的典型应用场景是重要的业务逻辑、提高性能、监控表的修改等
+触发器可以在DML语句执行前或后触发
+
+CREATE TRIGGER sales_trigger
+    BEFORE INSERT ON sales
+    FOR EACH ROW
+BEGIN
+    IF NEW.sale_value > 500 THEN
+        SET NEW.free_shipping = 'Y';
+    ELSE
+        SET NEW.free_shipping = 'N';
+    END IF;
+
+    IF NEW.sale_value > 1000 THEN
+        SET NEW.discount = NEW.sale_value * .15;
+    ELSE
+        SET NEW.discount = 0;
+    END IF;
+END;
+
+ 
